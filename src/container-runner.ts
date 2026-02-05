@@ -32,6 +32,31 @@ function getHomeDir(): string {
   return home;
 }
 
+/**
+ * Sync Claude credentials from host to container session directory.
+ * Claude Code reads from ~/.claude/.credentials.json, not env vars.
+ * The host's credentials auto-refresh via OAuth, so we copy them
+ * before each container run to ensure the container has valid tokens.
+ */
+function syncCredentials(groupSessionsDir: string): void {
+  const homeDir = getHomeDir();
+  const hostCredentials = path.join(homeDir, '.claude', '.credentials.json');
+  const containerCredentials = path.join(groupSessionsDir, '.credentials.json');
+
+  if (!fs.existsSync(hostCredentials)) {
+    logger.warn('No host credentials found at ~/.claude/.credentials.json');
+    return;
+  }
+
+  try {
+    fs.copyFileSync(hostCredentials, containerCredentials);
+    fs.chmodSync(containerCredentials, 0o600);
+    logger.debug({ groupSessionsDir }, 'Synced Claude credentials to container');
+  } catch (err) {
+    logger.error({ err }, 'Failed to sync Claude credentials');
+  }
+}
+
 export interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -105,6 +130,10 @@ function buildVolumeMounts(
     '.claude',
   );
   fs.mkdirSync(groupSessionsDir, { recursive: true });
+
+  // Sync credentials from host before each run (tokens auto-refresh on host)
+  syncCredentials(groupSessionsDir);
+
   mounts.push({
     hostPath: groupSessionsDir,
     containerPath: '/home/node/.claude',
