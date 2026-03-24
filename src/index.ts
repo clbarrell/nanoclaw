@@ -16,6 +16,7 @@ import {
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
   STORE_DIR,
+  TELEGRAM_ENABLED,
   TIMEZONE,
   TRIGGER_PATTERN,
 } from './config.js';
@@ -74,7 +75,14 @@ function translateJid(jid: string): string {
 
 async function setTyping(jid: string, isTyping: boolean): Promise<void> {
   try {
-    await sock.sendPresenceUpdate(isTyping ? 'composing' : 'paused', jid);
+    if (jid.startsWith('tg:')) {
+      if (isTyping) {
+        const { sendTelegramTyping } = await import('./telegram.js');
+        await sendTelegramTyping(jid.slice(3));
+      }
+    } else {
+      await sock.sendPresenceUpdate(isTyping ? 'composing' : 'paused', jid);
+    }
   } catch (err) {
     logger.debug({ jid, err }, 'Failed to update typing status');
   }
@@ -288,7 +296,12 @@ async function runAgent(
 
 async function sendMessage(jid: string, text: string): Promise<void> {
   try {
-    await sock.sendMessage(jid, { text });
+    if (jid.startsWith('tg:')) {
+      const { sendTelegramMessage } = await import('./telegram.js');
+      await sendTelegramMessage(jid.slice(3), text);
+    } else {
+      await sock.sendMessage(jid, { text });
+    }
     logger.info({ jid, length: text.length }, 'Message sent');
   } catch (err) {
     logger.error({ jid, err }, 'Failed to send message');
@@ -821,6 +834,12 @@ async function main(): Promise<void> {
   logger.info('Database initialized');
   loadState();
   await connectWhatsApp();
+
+  if (TELEGRAM_ENABLED) {
+    const { connectTelegram } = await import('./telegram.js');
+    await connectTelegram(() => registeredGroups);
+    logger.info('Telegram channel enabled');
+  }
 }
 
 main().catch((err) => {
