@@ -203,6 +203,24 @@ export function storeMessage(
   );
 }
 
+/**
+ * Store a message with full content from any channel (Telegram, etc.).
+ * Channel-agnostic alternative to storeMessage() which requires baileys types.
+ */
+export function storeGenericMessage(
+  id: string,
+  chatJid: string,
+  sender: string,
+  senderName: string,
+  content: string,
+  timestamp: string,
+  isFromMe: boolean,
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, chatJid, sender, senderName, content, timestamp, isFromMe ? 1 : 0);
+}
+
 export function getNewMessages(
   jids: string[],
   lastTimestamp: string,
