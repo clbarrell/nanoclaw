@@ -4,7 +4,7 @@ import path from 'path';
 import { Context, Telegraf } from 'telegraf';
 import { Message, Update } from 'telegraf/types';
 
-import { GROUPS_DIR, TELEGRAM_BOT_TOKEN } from './config.js';
+import { ASSISTANT_NAME, GROUPS_DIR, MAIN_GROUP_FOLDER, TELEGRAM_BOT_TOKEN } from './config.js';
 import { storeChatMetadata, storeGenericMessage } from './db.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
@@ -64,7 +64,7 @@ interface TelegramMessageContext {
 }
 
 /** Extract common fields from any Telegram message context. */
-function extractMessageContext(
+export function extractMessageContext(
   ctx: Context<Update.MessageUpdate>,
 ): TelegramMessageContext | null {
   if (!ctx.chat || !ctx.from || !ctx.message) return null;
@@ -112,8 +112,52 @@ function saveMediaFile(
  */
 export async function connectTelegram(
   getRegisteredGroups: () => Record<string, RegisteredGroup>,
+  registerGroup: (jid: string, group: RegisteredGroup) => void,
 ): Promise<void> {
   bot = new Telegraf(TELEGRAM_BOT_TOKEN);
+
+  // --- /chatid command ---
+  bot.command('chatid', (ctx) => {
+    if (!ctx.chat) return;
+    const jid = toTelegramJid(ctx.chat.id);
+    ctx.reply(`Chat ID: ${jid}`);
+  });
+
+  // --- /register command (main group only) ---
+  bot.command('register', (ctx) => {
+    if (!ctx.chat) return;
+    const senderJid = toTelegramJid(ctx.chat.id);
+    const groups = getRegisteredGroups();
+    const senderGroup = groups[senderJid];
+
+    if (!senderGroup || senderGroup.folder !== MAIN_GROUP_FOLDER) {
+      ctx.reply('Only the main channel can register new groups.');
+      return;
+    }
+
+    const args = ctx.message.text.split(/\s+/).slice(1);
+    if (args.length < 2) {
+      ctx.reply('Usage: /register <name> <jid>\nExample: /register gardening tg:123456789');
+      return;
+    }
+
+    const [name, jid] = args;
+    if (groups[jid]) {
+      ctx.reply(`Already registered: ${groups[jid].name} (${jid})`);
+      return;
+    }
+
+    const folder = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    registerGroup(jid, {
+      name,
+      folder,
+      trigger: `@${ASSISTANT_NAME}`,
+      added_at: new Date().toISOString(),
+    });
+
+    ctx.reply(`Registered "${name}" (${jid})\nTrigger: @${ASSISTANT_NAME}`);
+    logger.info({ name, jid, folder }, 'Group registered via /register command');
+  });
 
   // --- Text messages ---
   bot.on('text', (ctx) => {

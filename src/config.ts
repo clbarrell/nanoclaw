@@ -49,3 +49,7 @@ export const TIMEZONE =
 // Telegram bot configuration
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 export const TELEGRAM_ENABLED = !!TELEGRAM_BOT_TOKEN;
+
+// WhatsApp is enabled unless explicitly disabled or no auth store exists
+export const WHATSAPP_ENABLED =
+  process.env.WHATSAPP_ENABLED !== 'false';

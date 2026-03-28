@@ -19,6 +19,7 @@ import {
   TELEGRAM_ENABLED,
   TIMEZONE,
   TRIGGER_PATTERN,
+  WHATSAPP_ENABLED,
 } from './config.js';
 import {
   AvailableGroup,
@@ -80,7 +81,7 @@ async function setTyping(jid: string, isTyping: boolean): Promise<void> {
         const { sendTelegramTyping } = await import('./telegram.js');
         await sendTelegramTyping(jid.slice(3));
       }
-    } else {
+    } else if (sock) {
       await sock.sendPresenceUpdate(isTyping ? 'composing' : 'paused', jid);
     }
   } catch (err) {
@@ -299,8 +300,10 @@ async function sendMessage(jid: string, text: string): Promise<void> {
     if (jid.startsWith('tg:')) {
       const { sendTelegramMessage } = await import('./telegram.js');
       await sendTelegramMessage(jid.slice(3), text);
-    } else {
+    } else if (sock) {
       await sock.sendMessage(jid, { text });
+    } else {
+      logger.warn({ jid }, 'No transport available for JID');
     }
     logger.info({ jid, length: text.length }, 'Message sent');
   } catch (err) {
@@ -908,12 +911,29 @@ async function main(): Promise<void> {
   initDatabase();
   logger.info('Database initialized');
   loadState();
-  await connectWhatsApp();
+
+  if (WHATSAPP_ENABLED) {
+    await connectWhatsApp();
+  } else {
+    logger.info('WhatsApp disabled (WHATSAPP_ENABLED=false)');
+    // Start loops that WhatsApp connection.update normally triggers
+    startMessageLoop();
+    startIpcWatcher();
+    startSchedulerLoop({
+      sendMessage,
+      registeredGroups: () => registeredGroups,
+      getSessions: () => sessions,
+    });
+  }
 
   if (TELEGRAM_ENABLED) {
     const { connectTelegram } = await import('./telegram.js');
-    await connectTelegram(() => registeredGroups);
+    await connectTelegram(() => registeredGroups, registerGroup);
     logger.info('Telegram channel enabled');
+  }
+
+  if (!WHATSAPP_ENABLED && !TELEGRAM_ENABLED) {
+    throw new Error('No channels enabled. Set TELEGRAM_BOT_TOKEN or WHATSAPP_ENABLED=true');
   }
 }
 
