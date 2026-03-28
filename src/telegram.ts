@@ -4,9 +4,15 @@ import path from 'path';
 import { Context, Telegraf } from 'telegraf';
 import { Message, Update } from 'telegraf/types';
 
-import { ASSISTANT_NAME, GROUPS_DIR, MAIN_GROUP_FOLDER, TELEGRAM_BOT_TOKEN } from './config.js';
+import {
+  ASSISTANT_NAME,
+  GROUPS_DIR,
+  MAIN_GROUP_FOLDER,
+  TELEGRAM_BOT_TOKEN,
+} from './config.js';
 import { storeChatMetadata, storeGenericMessage } from './db.js';
 import { logger } from './logger.js';
+import { convertToTelegramMarkdown } from './markdown-telegram.js';
 import { RegisteredGroup } from './types.js';
 
 let bot: Telegraf;
@@ -32,11 +38,20 @@ export async function sendTelegramMessage(
   chatId: string,
   text: string,
 ): Promise<void> {
+  const formatted = convertToTelegramMarkdown(text);
   try {
-    await bot.telegram.sendMessage(chatId, text);
+    await bot.telegram.sendMessage(chatId, formatted, {
+      parse_mode: 'MarkdownV2',
+    });
     logger.info({ chatId, length: text.length }, 'Telegram message sent');
   } catch (err) {
-    logger.error({ chatId, err }, 'Failed to send Telegram message');
+    logger.warn({ chatId, err }, 'MarkdownV2 send failed, retrying as plain text');
+    try {
+      await bot.telegram.sendMessage(chatId, text);
+      logger.info({ chatId, length: text.length }, 'Telegram message sent as plain text fallback');
+    } catch (fallbackErr) {
+      logger.error({ chatId, err: fallbackErr }, 'Failed to send Telegram message');
+    }
   }
 }
 
@@ -74,8 +89,7 @@ export function extractMessageContext(
   const timestamp = new Date(ctx.message.date * 1000).toISOString();
   const sender = String(ctx.from.id);
   const senderName =
-    ctx.from.first_name +
-    (ctx.from.last_name ? ` ${ctx.from.last_name}` : '');
+    ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : '');
   const msgId = String(ctx.message.message_id);
   const isFromMe = ctx.from.is_bot;
   const chatName =
@@ -83,7 +97,16 @@ export function extractMessageContext(
       ? senderName
       : ('title' in ctx.chat ? ctx.chat.title : undefined) || jid;
 
-  return { chatId, jid, timestamp, sender, senderName, msgId, isFromMe, chatName };
+  return {
+    chatId,
+    jid,
+    timestamp,
+    sender,
+    senderName,
+    msgId,
+    isFromMe,
+    chatName,
+  };
 }
 
 /** Download a Telegram file by file_id and return the buffer. */
@@ -137,7 +160,9 @@ export async function connectTelegram(
 
     const args = ctx.message.text.split(/\s+/).slice(1);
     if (args.length < 2) {
-      ctx.reply('Usage: /register <name> <jid>\nExample: /register gardening tg:123456789');
+      ctx.reply(
+        'Usage: /register <name> <jid>\nExample: /register gardening tg:123456789',
+      );
       return;
     }
 
@@ -156,7 +181,10 @@ export async function connectTelegram(
     });
 
     ctx.reply(`Registered "${name}" (${jid})\nTrigger: @${ASSISTANT_NAME}`);
-    logger.info({ name, jid, folder }, 'Group registered via /register command');
+    logger.info(
+      { name, jid, folder },
+      'Group registered via /register command',
+    );
   });
 
   // --- Text messages ---
@@ -180,7 +208,11 @@ export async function connectTelegram(
     }
 
     logger.debug(
-      { jid: mc.jid, sender: mc.senderName, registered: !!registeredGroups[mc.jid] },
+      {
+        jid: mc.jid,
+        sender: mc.senderName,
+        registered: !!registeredGroups[mc.jid],
+      },
       'Telegram text received',
     );
   });
@@ -272,7 +304,10 @@ export async function connectTelegram(
         'Telegram voice note processed',
       );
     } catch (err) {
-      logger.error({ jid: mc.jid, err }, 'Failed to process Telegram voice note');
+      logger.error(
+        { jid: mc.jid, err },
+        'Failed to process Telegram voice note',
+      );
 
       storeGenericMessage(
         mc.msgId,
