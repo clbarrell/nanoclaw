@@ -196,9 +196,10 @@ async function processMessage(msg: NewMessage): Promise<void> {
   const isMainGroup = group.folder === MAIN_GROUP_FOLDER;
 
   // Main group responds to all messages; other groups require trigger prefix
-  // Voice messages always bypass the trigger — they're intentional and high-effort
+  // Voice messages and photos always bypass the trigger — they're intentional and high-effort
   const isVoiceMessage = content.startsWith('[Voice:');
-  if (!isMainGroup && !isVoiceMessage && !TRIGGER_PATTERN.test(content)) return;
+  const isPhotoMessage = content.startsWith('[Photo:');
+  if (!isMainGroup && !isVoiceMessage && !isPhotoMessage && !TRIGGER_PATTERN.test(content)) return;
 
   // Get all messages since last agent interaction so the session has full context
   const sinceTimestamp = lastAgentTimestamp[msg.chat_jid] || '';
