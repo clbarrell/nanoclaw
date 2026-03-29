@@ -26,11 +26,14 @@ export async function transcribeAudio(
     // transcribe() handles upload + polling automatically
     const transcript = await client.transcripts.transcribe({
       audio: audioBuffer,
-      speech_model: 'universal-2',
+      speech_models: ['universal-3-pro', 'universal-2'],
     });
 
     if (transcript.status === 'error') {
-      logger.error({ error: transcript.error }, 'AssemblyAI transcription error');
+      logger.error(
+        { error: transcript.error },
+        'AssemblyAI transcription error',
+      );
       return null;
     }
 
