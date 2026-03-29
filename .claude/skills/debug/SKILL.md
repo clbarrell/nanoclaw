@@ -1,5 +1,5 @@
 ---
-name: debug
+name: debug-nanoclaw
 description: Debug container agent issues. Use when things aren't working, container fails, authentication problems, or to understand how the container system works. Covers logs, environment variables, mounts, and common issues.
 ---
 

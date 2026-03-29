@@ -130,6 +130,8 @@ function buildVolumeMounts(
     '.claude',
   );
   fs.mkdirSync(groupSessionsDir, { recursive: true });
+  // Ensure container's node user (UID 1000) can write to .claude/ for sessions, settings, etc.
+  fs.chmodSync(groupSessionsDir, 0o777);
 
   // Sync credentials from host before each run (tokens auto-refresh on host)
   syncCredentials(groupSessionsDir);
