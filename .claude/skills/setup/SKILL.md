@@ -339,7 +339,15 @@ Tell the user:
 > }
 > ```
 
-## 10. Configure launchd Service
+## 10. Configure System Service
+
+First, detect the platform:
+
+```bash
+uname -s
+```
+
+### macOS (launchd)
 
 Generate the plist file with correct paths automatically:
 
@@ -398,6 +406,52 @@ Verify it's running:
 ```bash
 launchctl list | grep nanoclaw
 ```
+
+### Linux (systemd)
+
+The service file is tracked in the repo at `deploy/nanoclaw.service`. It runs as a dedicated `nanoclaw` user (not root) and auto-fixes file ownership on each start.
+
+Create the service user if it doesn't exist:
+
+```bash
+id nanoclaw 2>/dev/null || sudo useradd -r -m -s /bin/bash nanoclaw
+sudo usermod -aG docker nanoclaw
+```
+
+Install the service file and set up credentials:
+
+```bash
+sudo cp deploy/nanoclaw.service /etc/systemd/system/nanoclaw.service
+sudo chown -R nanoclaw:nanoclaw /opt/nanoclaw
+```
+
+Ensure the nanoclaw user has Claude credentials:
+
+```bash
+sudo -u nanoclaw mkdir -p /home/nanoclaw/.claude
+# Copy credentials from wherever they were generated
+sudo cp /root/.claude/.credentials.json /home/nanoclaw/.claude/.credentials.json 2>/dev/null || true
+sudo chown nanoclaw:nanoclaw /home/nanoclaw/.claude/.credentials.json
+sudo chmod 600 /home/nanoclaw/.claude/.credentials.json
+```
+
+Build and start:
+
+```bash
+npm run build
+sudo mkdir -p /opt/nanoclaw/logs
+sudo systemctl daemon-reload
+sudo systemctl enable nanoclaw
+sudo systemctl start nanoclaw
+```
+
+Verify:
+```bash
+systemctl status nanoclaw
+# Should show: Active: active (running), running as nanoclaw user
+```
+
+**Important:** The service uses `ExecStartPre=+chown` to fix file ownership on every start. This means you can deploy files as any user (rsync as root, scp, etc.) and permissions will self-correct on restart.
 
 ## 11. Test
 

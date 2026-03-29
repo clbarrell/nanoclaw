@@ -58,10 +58,11 @@ RUN npm run build
 RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks
 
 # Create entrypoint script
-# Sources env from mounted /workspace/env-dir/env if it exists (workaround for Apple Container -i bug)
-# Uses set -a to export all variables and handles special characters properly
-# Configures git HTTPS auth via GH_TOKEN if available
-RUN printf '#!/bin/bash\nset -e\nif [ -f /workspace/env-dir/env ]; then\n  set -a\n  source /workspace/env-dir/env\n  set +a\nfi\n[ -n "$GH_TOKEN" ] && git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"\ncat > /tmp/input.json\nnode /app/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+# - Sources env from mounted /workspace/env-dir/env if it exists
+# - Configures git identity and HTTPS auth (must run at entrypoint, not build time,
+#   because --user override changes the runtime UID away from the build-time node user)
+# - Reads JSON input from stdin then runs the agent
+RUN printf '#!/bin/bash\nset -e\nif [ -f /workspace/env-dir/env ]; then\n  set -a\n  source /workspace/env-dir/env\n  set +a\nfi\ngit config --global user.name "NanoClaw"\ngit config --global user.email "nanoclaw@users.noreply.github.com"\n[ -n "$GH_TOKEN" ] && git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"\ncat > /tmp/input.json\nnode /app/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Make workspace and home world-writable so any UID passed via --user can write.
 # The container-runner passes --user to match the host UID, which may differ from
@@ -72,10 +73,6 @@ RUN chmod -R 777 /workspace /home/node
 # Switch to non-root user (required for --dangerously-skip-permissions)
 # Note: This is the default user; container-runner overrides with --user to match host UID
 USER node
-
-# Configure git identity for NanoClaw commits
-RUN git config --global user.name "NanoClaw" && \
-    git config --global user.email "nanoclaw@users.noreply.github.com"
 
 # Set working directory to group workspace
 WORKDIR /workspace/group

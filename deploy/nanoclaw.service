@@ -1,0 +1,27 @@
+[Unit]
+Description=NanoClaw - Personal Claude Assistant
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=nanoclaw
+Group=nanoclaw
+WorkingDirectory=/opt/nanoclaw
+
+# Fix ownership before starting — ensures correct permissions regardless of deploy method
+ExecStartPre=+/bin/chown -R nanoclaw:nanoclaw /opt/nanoclaw
+
+ExecStart=/usr/bin/node --dns-result-order=ipv4first /opt/nanoclaw/dist/index.js
+Restart=always
+RestartSec=5
+Environment=HOME=/home/nanoclaw
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=WHATSAPP_ENABLED=false
+EnvironmentFile=/opt/nanoclaw/.env
+
+StandardOutput=append:/opt/nanoclaw/logs/nanoclaw.log
+StandardError=append:/opt/nanoclaw/logs/nanoclaw.error.log
+
+[Install]
+WantedBy=multi-user.target

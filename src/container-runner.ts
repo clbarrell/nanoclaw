@@ -22,6 +22,24 @@ import { RegisteredGroup } from './types.js';
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
+/**
+ * Create a directory with explicit permissions, bypassing umask.
+ * Node's mkdirSync `mode` option is silently reduced by umask (e.g. 0o777 → 0o755),
+ * so we always follow up with chmodSync to get the actual permissions we want.
+ */
+function mkdirWithPerms(dirPath: string, mode: number): void {
+  fs.mkdirSync(dirPath, { recursive: true });
+  fs.chmodSync(dirPath, mode);
+}
+
+/**
+ * Write a file with explicit permissions, bypassing umask.
+ */
+function writeFileWithPerms(filePath: string, data: string, mode: number): void {
+  fs.writeFileSync(filePath, data);
+  fs.chmodSync(filePath, mode);
+}
+
 function getHomeDir(): string {
   const home = process.env.HOME || os.homedir();
   if (!home) {
@@ -129,9 +147,7 @@ function buildVolumeMounts(
     group.folder,
     '.claude',
   );
-  fs.mkdirSync(groupSessionsDir, { recursive: true });
-  // Ensure container's node user (UID 1000) can write to .claude/ for sessions, settings, etc.
-  fs.chmodSync(groupSessionsDir, 0o777);
+  mkdirWithPerms(groupSessionsDir, 0o777);
 
   // Sync credentials from host before each run (tokens auto-refresh on host)
   syncCredentials(groupSessionsDir);
@@ -144,10 +160,9 @@ function buildVolumeMounts(
 
   // Per-group IPC namespace: each group gets its own IPC directory
   // This prevents cross-group privilege escalation via IPC
-  // Mode 0o777 ensures container's node user (UID 1000) can write regardless of host UID
   const groupIpcDir = path.join(DATA_DIR, 'ipc', group.folder);
-  fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true, mode: 0o777 });
-  fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true, mode: 0o777 });
+  mkdirWithPerms(path.join(groupIpcDir, 'messages'), 0o777);
+  mkdirWithPerms(path.join(groupIpcDir, 'tasks'), 0o777);
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
@@ -480,7 +495,7 @@ export function writeTasksSnapshot(
 ): void {
   // Write filtered tasks to the group's IPC directory
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
-  fs.mkdirSync(groupIpcDir, { recursive: true, mode: 0o777 });
+  mkdirWithPerms(groupIpcDir, 0o777);
 
   // Main sees all tasks, others only see their own
   const filteredTasks = isMain
@@ -488,7 +503,7 @@ export function writeTasksSnapshot(
     : tasks.filter((t) => t.groupFolder === groupFolder);
 
   const tasksFile = path.join(groupIpcDir, 'current_tasks.json');
-  fs.writeFileSync(tasksFile, JSON.stringify(filteredTasks, null, 2), { mode: 0o666 });
+  writeFileWithPerms(tasksFile, JSON.stringify(filteredTasks, null, 2), 0o666);
 }
 
 export interface AvailableGroup {
@@ -510,13 +525,13 @@ export function writeGroupsSnapshot(
   registeredJids: Set<string>,
 ): void {
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
-  fs.mkdirSync(groupIpcDir, { recursive: true, mode: 0o777 });
+  mkdirWithPerms(groupIpcDir, 0o777);
 
   // Main sees all groups; others see nothing (they can't activate groups)
   const visibleGroups = isMain ? groups : [];
 
   const groupsFile = path.join(groupIpcDir, 'available_groups.json');
-  fs.writeFileSync(
+  writeFileWithPerms(
     groupsFile,
     JSON.stringify(
       {
@@ -526,6 +541,6 @@ export function writeGroupsSnapshot(
       null,
       2,
     ),
-    { mode: 0o666 },
+    0o666,
   );
 }
