@@ -5,6 +5,7 @@ import path from 'path';
 import makeWASocket, {
   DisconnectReason,
   WASocket,
+  downloadMediaMessage,
   makeCacheableSignalKeyStore,
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys';
@@ -37,6 +38,7 @@ import {
   initDatabase,
   setLastGroupSync,
   storeChatMetadata,
+  storeGenericMessage,
   storeMessage,
   updateChatName,
 } from './db.js';
@@ -194,7 +196,9 @@ async function processMessage(msg: NewMessage): Promise<void> {
   const isMainGroup = group.folder === MAIN_GROUP_FOLDER;
 
   // Main group responds to all messages; other groups require trigger prefix
-  if (!isMainGroup && !TRIGGER_PATTERN.test(content)) return;
+  // Voice messages always bypass the trigger — they're intentional and high-effort
+  const isVoiceMessage = content.startsWith('[Voice:');
+  if (!isMainGroup && !isVoiceMessage && !TRIGGER_PATTERN.test(content)) return;
 
   // Get all messages since last agent interaction so the session has full context
   const sinceTimestamp = lastAgentTimestamp[msg.chat_jid] || '';
@@ -896,12 +900,56 @@ async function connectWhatsApp(): Promise<void> {
 
       // Only store full message content for registered groups
       if (registeredGroups[chatJid]) {
-        storeMessage(
-          msg,
-          chatJid,
-          msg.key.fromMe || false,
-          msg.pushName || undefined,
-        );
+        const audioMsg = msg.message?.audioMessage;
+        if (audioMsg) {
+          // Handle voice notes asynchronously — transcribe and store
+          (async () => {
+            try {
+              const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
+                logger,
+                reuploadRequest: sock.updateMediaMessage,
+              }) as Buffer;
+              const { transcribeAudio } = await import('./transcription.js');
+              const transcript = await transcribeAudio(buffer);
+              const content = transcript
+                ? `[Voice: ${transcript}]`
+                : '[Voice message - transcription unavailable]';
+              const sender = msg.key.participant || msg.key.remoteJid || '';
+              storeGenericMessage(
+                msg.key.id || '',
+                chatJid,
+                sender,
+                msg.pushName || sender.split('@')[0],
+                content,
+                timestamp,
+                msg.key.fromMe || false,
+              );
+              logger.info(
+                { jid: chatJid, sender: msg.pushName, transcribed: !!transcript },
+                'WhatsApp voice note processed',
+              );
+            } catch (err) {
+              logger.error({ jid: chatJid, err }, 'Failed to process WhatsApp voice note');
+              const sender = msg.key.participant || msg.key.remoteJid || '';
+              storeGenericMessage(
+                msg.key.id || '',
+                chatJid,
+                sender,
+                msg.pushName || sender.split('@')[0],
+                '[Voice message - transcription failed]',
+                timestamp,
+                msg.key.fromMe || false,
+              );
+            }
+          })();
+        } else {
+          storeMessage(
+            msg,
+            chatJid,
+            msg.key.fromMe || false,
+            msg.pushName || undefined,
+          );
+        }
       }
     }
   });
