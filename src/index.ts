@@ -687,7 +687,36 @@ async function executeDeploy(reason: string): Promise<void> {
   logger.info({ reason }, 'Starting deploy sequence');
 
   try {
-    // Step 1: Ensure we're on main branch
+    // Step 1: Commit any local runtime changes (group data modified by agents)
+    execSync('git add -A groups/', {
+      cwd: projectRoot,
+      timeout: 10000,
+      stdio: 'pipe',
+    });
+
+    let hasLocalChanges = false;
+    try {
+      execSync('git diff --cached --quiet', {
+        cwd: projectRoot,
+        timeout: 5000,
+        stdio: 'pipe',
+      });
+    } catch {
+      hasLocalChanges = true;
+    }
+
+    if (hasLocalChanges) {
+      execSync('git commit -m "chore: auto-save runtime group data"', {
+        cwd: projectRoot,
+        timeout: 10000,
+        stdio: 'pipe',
+      });
+      logger.info('Committed local runtime changes');
+    } else {
+      logger.info('No local changes to commit');
+    }
+
+    // Step 2: Ensure we're on main branch
     execSync('git checkout main', {
       cwd: projectRoot,
       timeout: 10000,
@@ -695,13 +724,41 @@ async function executeDeploy(reason: string): Promise<void> {
     });
     logger.info('Checked out main branch');
 
-    // Step 2: Pull latest (includes the merged PR)
-    execSync('git pull origin main', {
+    // Step 3: Pull latest, handling merge conflicts on group data
+    try {
+      execSync('git pull origin main', {
+        cwd: projectRoot,
+        timeout: 30000,
+        stdio: 'pipe',
+      });
+      logger.info('Git pull complete');
+    } catch (pullErr) {
+      logger.warn('Git pull had conflicts, resolving by keeping local group data');
+      execSync('git checkout --ours -- groups/', {
+        cwd: projectRoot,
+        timeout: 10000,
+        stdio: 'pipe',
+      });
+      execSync('git add groups/', {
+        cwd: projectRoot,
+        timeout: 10000,
+        stdio: 'pipe',
+      });
+      execSync('git commit --no-edit', {
+        cwd: projectRoot,
+        timeout: 10000,
+        stdio: 'pipe',
+      });
+      logger.info('Merge conflict resolved, local group data preserved');
+    }
+
+    // Step 4: Push merged result back to remote
+    execSync('git push origin main', {
       cwd: projectRoot,
       timeout: 30000,
       stdio: 'pipe',
     });
-    logger.info('Git pull complete');
+    logger.info('Pushed changes to remote');
 
     // Step 3: Rebuild container image
     execSync('./container/build.sh', {
