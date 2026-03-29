@@ -325,7 +325,10 @@ export async function connectTelegram(
     logger.error({ err }, 'Telegram bot error');
   });
 
-  await bot.launch();
+  logger.info('Launching Telegram bot polling...');
+  bot.launch({ dropPendingUpdates: true }).catch((err) => {
+    logger.error({ err }, 'Telegram bot polling error');
+  });
   logger.info('Connected to Telegram');
 
   // Graceful shutdown
