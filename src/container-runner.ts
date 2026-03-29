@@ -195,6 +195,18 @@ function buildVolumeMounts(
 function buildContainerArgs(mounts: VolumeMount[]): string[] {
   const args: string[] = ['run', '-i', '--rm'];
 
+  // Run container as the host process's UID/GID so bind-mounted files are writable.
+  // The Dockerfile's USER node (UID 1000) is the fallback; this override ensures
+  // the container matches whatever UID owns the project files on the host.
+  const uid = process.getuid?.();
+  const gid = process.getgid?.();
+  if (uid != null && gid != null) {
+    args.push('--user', `${uid}:${gid}`);
+  }
+
+  // Set HOME explicitly since --user may not map to a known user in /etc/passwd
+  args.push('-e', 'HOME=/home/node');
+
   // Docker: -v with :ro suffix for readonly
   for (const mount of mounts) {
     if (mount.readonly) {

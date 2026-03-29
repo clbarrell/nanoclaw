@@ -63,10 +63,14 @@ RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/
 # Configures git HTTPS auth via GH_TOKEN if available
 RUN printf '#!/bin/bash\nset -e\nif [ -f /workspace/env-dir/env ]; then\n  set -a\n  source /workspace/env-dir/env\n  set +a\nfi\n[ -n "$GH_TOKEN" ] && git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"\ncat > /tmp/input.json\nnode /app/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
-# Set ownership to node user (non-root) for writable directories
-RUN chown -R node:node /workspace
+# Make workspace and home world-writable so any UID passed via --user can write.
+# The container-runner passes --user to match the host UID, which may differ from
+# the node user's UID 1000. These directories need to be writable for git, Claude
+# sessions, and workspace operations.
+RUN chmod -R 777 /workspace /home/node
 
 # Switch to non-root user (required for --dangerously-skip-permissions)
+# Note: This is the default user; container-runner overrides with --user to match host UID
 USER node
 
 # Configure git identity for NanoClaw commits
